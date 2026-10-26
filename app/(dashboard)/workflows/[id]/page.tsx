@@ -21,6 +21,7 @@ export default async function Page({
   // Ensure the room exists and that the org has write access.
   // getOrCreateRoom is idempotent — safe to call on every page load.
   await liveblocks.getOrCreateRoom(id, {
+    organizationId: orgId,
     defaultAccesses: [],
     groupsAccesses: {
       [orgId]: ["room:write"],

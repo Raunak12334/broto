@@ -15,6 +15,7 @@ export async function POST() {
       userId,
       // Pass the active org as a group so organization-scoped room permissions apply
       groupIds: orgId ? [orgId] : [],
+      organizationId: orgId,
     },
     {
       userInfo: {
