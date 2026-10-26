@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { MoreHorizontal, Play, Trash2 } from "lucide-react"
-import { useReactFlow } from "@xyflow/react"
+import { useReactFlow, useStore } from "@xyflow/react"
 import { toast } from "sonner"
 
 import {
@@ -298,7 +298,7 @@ export function RightSidebar() {
   const [tab, setTab] = useState("toolbar")
 
   // TODO: read the currently selected node from React Flow.
-  const selected: StepNodeType | undefined = undefined
+  const selected = useStore((s) => s.nodes.find((n) => n.selected)) as StepNodeType | undefined
 
   // TODO: auto-switch to the Editor tab when the selection changes.
 
