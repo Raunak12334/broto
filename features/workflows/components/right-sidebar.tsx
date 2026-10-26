@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 import { MoreHorizontal, Play, Trash2 } from "lucide-react"
+import { useReactFlow } from "@xyflow/react"
+import { toast } from "sonner"
 
 import {
   Accordion,
@@ -158,9 +160,51 @@ const definitions = Object.values(nodeRegistry)
 
 // The Toolbar tab: a button per node type that adds it to the canvas.
 function Palette() {
+  const { getNodes, addNodes, screenToFlowPosition } = useReactFlow()
+
   const add = (type: NodeType) => {
-    // TODO: add the clicked node to the canvas (one trigger max).
-    void type
+    const def = nodeRegistry[type]
+    const existingNodes = getNodes() as StepNodeType[]
+
+    // Enforce single-trigger rule.
+    if (def.kind === "trigger") {
+      const hasTrigger = existingNodes.some((n) => n.data.kind === "trigger")
+      if (hasTrigger) {
+        toast.error("Only one trigger allowed", {
+          description: "Remove the existing trigger node before adding a new one.",
+        })
+        return
+      }
+    }
+
+    // Count existing nodes of this type to build a numbered label.
+    // Triggers are unique, so they don't need numbering.
+    const sameTypeCount = existingNodes.filter(
+      (n) => n.data.type === type
+    ).length
+    const title =
+      sameTypeCount === 0
+        ? def.label
+        : `${def.label} ${sameTypeCount + 1}`
+
+    // Place the node at the center of the current viewport.
+    // The viewport (x, y, zoom) describes the transform applied to the canvas.
+    // Inverting it gives us the flow-space coordinate of the screen center:
+    //   flowX = (screenCenterX - viewport.x) / viewport.zoom
+    //   flowY = (screenCenterY - viewport.y) / viewport.zoom
+    // screenToFlowPosition does exactly this conversion.
+    const screenCenterX = window.innerWidth / 2
+    const screenCenterY = window.innerHeight / 2
+    const position = screenToFlowPosition({ x: screenCenterX, y: screenCenterY })
+
+    const newNode: StepNodeType = {
+      id: crypto.randomUUID(),
+      type: "step",
+      position,
+      data: { type, kind: def.kind, title, values: {} },
+    }
+
+    addNodes(newNode)
   }
 
   return (
