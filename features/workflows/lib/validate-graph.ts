@@ -10,7 +10,7 @@ export function validateGraph({ nodes, edges }: WorkflowGraph): string[] {
     }
 
     if (edges.length === 0) {
-        problems.push("Workflow must have at least one edge.")
+        problems.push("Connect your nodes before running.")
     } else {
         try {
             toposort(edges.map((e) => [e.source, e.target]))
