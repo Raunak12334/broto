@@ -1,4 +1,14 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { defineConfig } from "@trigger.dev/sdk";
+
+const defaultArchivePath = path.resolve(
+  process.cwd(),
+  "node_modules/@browserbasehq/stagehand/dist/assets/stagehand-extension.zip"
+);
+if (existsSync(defaultArchivePath)) {
+  process.env.STAGEHAND_EXTENSION_ARCHIVE_PATH = defaultArchivePath;
+}
 
 export default defineConfig({
   project: "proj_tjpkiwuryaugknegcmfk",
@@ -18,5 +28,8 @@ export default defineConfig({
       randomize: true,
     },
   },
-  dirs: ["features"],
+  dirs: ["features/tasks"],
+  build: {
+    external: ["@browserbasehq/stagehand"],
+  },
 });
