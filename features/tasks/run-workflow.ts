@@ -5,6 +5,7 @@ import { logger, task } from "@trigger.dev/sdk"
 import type { Stagehand, StagehandBrowser } from "@browserbasehq/stagehand"
 import { nodeExecutors } from "@/features/workflows/nodes/node-executors"
 import { getWorkflow } from "@/features/workflows/data"
+import { interpolate } from "@/features/workflows/lib/interpolate"
 
 // Ensure the extension archive path is set in the environment before Stagehand is loaded
 if (!process.env.STAGEHAND_EXTENSION_ARCHIVE_PATH) {
@@ -69,20 +70,30 @@ export const runWorkflowTask = task({
             return stagehand
         }
 
+        const outputs: Record<string, unknown> = {}
+
         try {
             for (const id of order) {
                 const node = byId.get(id)!
                 logger.log(`Running step: ${node.data.title}`)
+
+                const values: Record<string, string> = {}
+                for (const [key, value] of Object.entries(node.data.values ?? {})) {
+                    values[key] = interpolate(value, outputs)
+                }
+
                 // TODO: actually execute the node instead of just logging it, and report
                 // its progress so the UI can watch the run live.
                 const executor = nodeExecutors[node.data.type]
-                if (executor) await executor({ values: node.data.values, getStagehand })
+                if (executor) {
+                    outputs[id] = await executor({ values, getStagehand })
+                }
             }
         } finally {
             await stagehand?.close()
             await browser?.close()
         }
 
-        return { steps: order.length }
+        return { steps: order.length, outputs }
     },
 })
