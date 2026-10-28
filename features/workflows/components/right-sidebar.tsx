@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
 import { MoreHorizontal, Play, Trash2 } from "lucide-react"
 import { useReactFlow, useStore } from "@xyflow/react"
 import { toast } from "sonner"
 
 import { deleteWorkflowAction, runWorkflowAction } from "@/features/workflows/actions"
 import { validateGraph } from "../lib/validate-graph"
+import { useUpstreamConnections } from "@/features/workflows/hooks/use-upstream-connections"
 import {
   Accordion,
   AccordionContent,
@@ -93,19 +94,43 @@ function FieldInput({
   field,
   value,
   onChange,
+  onFocus,
+  onSelectChange,
 }: {
   field: NodeField
   value: string
   onChange: (value: string) => void
+  onFocus?: () => void
+  onSelectChange?: (start: number, end: number) => void
 }) {
+  const updateSelection = (
+    e: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const target = e.currentTarget
+    onSelectChange?.(
+      target.selectionStart ?? target.value.length,
+      target.selectionEnd ?? target.value.length
+    )
+  }
+
   if (field.multiline) {
     return (
       <Textarea
         id={field.key}
         value={value}
         placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
         className="min-h-24 resize-y text-sm"
+        onFocus={(e) => {
+          onFocus?.()
+          updateSelection(e)
+        }}
+        onSelect={updateSelection}
+        onClick={updateSelection}
+        onKeyUp={updateSelection}
+        onChange={(e) => {
+          onChange(e.target.value)
+          updateSelection(e)
+        }}
       />
     )
   }
@@ -115,14 +140,29 @@ function FieldInput({
       id={field.key}
       value={value}
       placeholder={field.placeholder}
-      onChange={(e) => onChange(e.target.value)}
+      onFocus={(e) => {
+        onFocus?.()
+        updateSelection(e)
+      }}
+      onSelect={updateSelection}
+      onClick={updateSelection}
+      onKeyUp={updateSelection}
+      onChange={(e) => {
+        onChange(e.target.value)
+        updateSelection(e)
+      }}
     />
   )
 }
 
 // The Editor tab: one input per field on the selected node, or an empty state.
 function Inspector({ node }: { node: StepNodeType | undefined }) {
-  const { updateNodeData } = useReactFlow<StepNodeType>();
+  const { updateNodeData } = useReactFlow<StepNodeType>()
+  const upstreamConnections = useUpstreamConnections(node)
+
+  const [lastFieldKey, setLastFieldKey] = useState<string | null>(null)
+  const selectionRef = useRef<{ start: number; end: number } | null>(null)
+
   if (!node) {
     return (
       <Section title="Editor">
@@ -133,6 +173,40 @@ function Inspector({ node }: { node: StepNodeType | undefined }) {
 
   const { type, title, values } = node.data
   const def: NodeDefinition = nodeRegistry[type]
+
+  const handleInsert = (token: string) => {
+    const targetKey =
+      lastFieldKey && def.fields.some((f) => f.key === lastFieldKey)
+        ? lastFieldKey
+        : def.fields[0]?.key
+
+    if (!targetKey) return
+
+    const currentVal = values[targetKey] ?? ""
+    const start = selectionRef.current?.start ?? currentVal.length
+    const end = selectionRef.current?.end ?? currentVal.length
+
+    const newVal = currentVal.slice(0, start) + token + currentVal.slice(end)
+    const nextPos = start + token.length
+
+    selectionRef.current = { start: nextPos, end: nextPos }
+    setLastFieldKey(targetKey)
+
+    updateNodeData(node.id, {
+      values: { ...values, [targetKey]: newVal },
+    })
+
+    const el = document.getElementById(targetKey) as
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | null
+    if (el) {
+      el.focus()
+      requestAnimationFrame(() => {
+        el.setSelectionRange(nextPos, nextPos)
+      })
+    }
+  }
 
   return (
     <Section title={title} icon={<NodeIcon type={type} />}>
@@ -149,6 +223,11 @@ function Inspector({ node }: { node: StepNodeType | undefined }) {
               <FieldInput
                 field={field}
                 value={values[field.key] ?? ""}
+                onFocus={() => setLastFieldKey(field.key)}
+                onSelectChange={(start, end) => {
+                  setLastFieldKey(field.key)
+                  selectionRef.current = { start, end }
+                }}
                 onChange={(value) => {
                   updateNodeData(node.id, {
                     values: { ...values, [field.key]: value },
@@ -157,6 +236,32 @@ function Inspector({ node }: { node: StepNodeType | undefined }) {
               />
             </div>
           ))
+        )}
+
+        {upstreamConnections.length > 0 && (
+          <div className="flex flex-col gap-2 pt-2 border-t border-border">
+            <Label className="text-xs font-semibold text-muted-foreground">
+              Connections
+            </Label>
+            <div className="flex flex-wrap gap-1.5">
+              {upstreamConnections.map((conn) => (
+                <button
+                  key={conn.token}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleInsert(conn.token)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary cursor-pointer select-none"
+                  title={`Insert ${conn.token}`}
+                >
+                  <NodeIcon
+                    type={conn.type}
+                    className="size-4 rounded-sm [&>svg]:size-2.5"
+                  />
+                  <span>{conn.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </Section>
@@ -297,9 +402,7 @@ function ActionsMenu({ workflowId }: { workflowId: string }) {
           className="text-xs [&_svg:not([class*='size-'])]:size-3.5"
           onSelect={(e) => {
             e.preventDefault()
-            startTransition(async () => {
-              await deleteWorkflowAction(workflowId)
-            })
+            handleDelete()
           }}
         >
           <Trash2 />
@@ -387,7 +490,7 @@ export function RightSidebar({ workflowId }: { workflowId: string }) {
           <Palette />
         </TabsContent>
         <TabsContent value="editor" className="flex min-h-0 flex-col">
-          <Inspector node={selected} />
+          <Inspector key={selected?.id} node={selected} />
         </TabsContent>
       </Tabs>
     </ResizablePanel>
