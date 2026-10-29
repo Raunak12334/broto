@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import path from "node:path"
 import toposort from "toposort"
-import { logger, task } from "@trigger.dev/sdk"
+import { logger, metadata, task } from "@trigger.dev/sdk"
 import type { Stagehand, StagehandBrowser } from "@browserbasehq/stagehand"
 import { nodeExecutors } from "@/features/workflows/nodes/node-executors"
 import { getWorkflow } from "@/features/workflows/data"
@@ -16,6 +16,11 @@ if (!process.env.STAGEHAND_EXTENSION_ARCHIVE_PATH) {
     if (existsSync(defaultArchivePath)) {
         process.env.STAGEHAND_EXTENSION_ARCHIVE_PATH = defaultArchivePath
     }
+}
+
+export type RunStep = {
+    id: string
+    status: "pending" | "running" | "done" | "failed"
 }
 
 // The Trigger.dev task the Run button fires. It loads the saved graph, works out
@@ -40,6 +45,17 @@ export const runWorkflowTask = task({
                 edges.map((e) => [e.source, e.target])
             )
             .filter((id) => connected.has(id))
+
+        let steps: RunStep[] = order.map((id) => ({
+            id,
+            status: "pending",
+        }))
+        metadata.set("steps", steps)
+
+        const updateStep = (id: string, status: RunStep["status"]) => {
+            steps = steps.map((s) => (s.id === id ? { ...s, status } : s))
+            metadata.set("steps", steps)
+        }
 
         logger.log(`Running workflow ${workflow.name}`, { steps: order.length })
 
@@ -82,11 +98,19 @@ export const runWorkflowTask = task({
                     values[key] = interpolate(value, outputs)
                 }
 
-                // TODO: actually execute the node instead of just logging it, and report
-                // its progress so the UI can watch the run live.
-                const executor = nodeExecutors[node.data.type]
-                if (executor) {
-                    outputs[id] = await executor({ values, getStagehand })
+                updateStep(id, "running")
+                await metadata.flush()
+
+                try {
+                    const executor = nodeExecutors[node.data.type]
+                    if (executor) {
+                        outputs[id] = await executor({ values, getStagehand })
+                    }
+                    updateStep(id, "done")
+                } catch (error) {
+                    updateStep(id, "failed")
+                    await metadata.flush()
+                    throw error
                 }
             }
         } finally {
@@ -94,6 +118,6 @@ export const runWorkflowTask = task({
             await browser?.close()
         }
 
-        return { steps: order.length, outputs }
+        return { steps, outputs }
     },
 })
