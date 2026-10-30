@@ -47,7 +47,7 @@ import {
 // ---------------------------------------------------------------------------
 
 // The accent-colored icon chip, mirroring the node on the canvas.
-function NodeIcon({ type, className }: { type: NodeType; className?: string }) {
+export function NodeIcon({ type, className }: { type: NodeType; className?: string }) {
   const def = nodeRegistry[type]
   const Icon = def.icon
   return (
